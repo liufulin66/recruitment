@@ -4,9 +4,9 @@
 
 ## 1. 环境准备
 
-- [ ] 1.1 初始化 git 仓库并完成首次提交（`.gitignore` 排除 `.venv`）；验证：`git log` 有首次提交、`.venv` 未被跟踪
-- [ ] 1.2 安装并启动 MySQL 服务（或确认可用实例），创建 `recruitment` 库与账号（utf8mb4）；验证：用客户端连接后 `SHOW DATABASES` 可见该库
-- [ ] 1.3 逐个讲解 pandas / Flask / PyMySQL / jieba / pyecharts 后（逐一确认）安装进 `.venv`，生成 `requirements.txt`；验证：`pip install -r requirements.txt` 成功、五个包可正常 import
+- [x] 1.1 初始化 git 仓库并完成首次提交（`.gitignore` 排除 `.venv`）；验证：`git log` 有首次提交、`.venv` 未被跟踪
+- [x] 1.2 安装并启动 MySQL 服务（或确认可用实例），创建 `recruitment` 库与账号（utf8mb4）；验证：用客户端连接后 `SHOW DATABASES` 可见该库
+- [x] 1.3 逐个讲解 pandas / Flask / PyMySQL / jieba / pyecharts 后（逐一确认）安装进 `.venv`，生成 `requirements.txt`；验证：`pip install -r requirements.txt` 成功、五个包可正常 import
 - [ ] 1.4 将 PyCharm 模块解释器从 LibreOffice Python 切换到 `.venv`；验证：IDE 右下角显示 `.venv`，脚本以该解释器运行
 
 ## 2. 数据集准备
