@@ -11,9 +11,12 @@
          color: #1f2430; background: #f6f7f9; }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 18px 20px 40px; }
   h1 { font-size: 22px; margin: 6px 0 14px; }
+  nav { overflow: hidden; }
   nav a { display: inline-block; margin-right: 14px; padding: 6px 2px; color: #374151;
           text-decoration: none; border-bottom: 2px solid transparent; }
   nav a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  nav .who { float: right; color: var(--muted); font-size: 13px; line-height: 34px; }
+  nav .who a { margin-left: 10px; color: var(--accent); text-decoration: none; }
   .filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
              background: #fff; border: 1px solid var(--border); border-radius: 8px;
              padding: 10px 14px; margin: 12px 0 18px; }
@@ -32,6 +35,19 @@
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
   .note { color: var(--muted); font-size: 13px; background: #fff; border: 1px dashed var(--border);
           border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+  .auth-box { max-width: 360px; margin: 40px auto; background: #fff; border: 1px solid var(--border);
+              border-radius: 10px; padding: 24px 26px; }
+  .auth-box h2 { margin: 0 0 16px; font-size: 18px; }
+  .auth-box label { display: block; margin-bottom: 12px; font-size: 14px; }
+  .auth-box input[type=text], .auth-box input[type=password] { width: 100%; margin-top: 6px;
+              padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+  .auth-box button { width: 100%; padding: 9px 0; border: 0; border-radius: 6px;
+              background: var(--accent); color: #fff; cursor: pointer; }
+  .auth-box .error { color: #d93026; font-size: 13px; margin: 0 0 12px; }
+  .auth-box .switch { font-size: 13px; color: var(--muted); margin: 14px 0 0; text-align: center; }
+  .auth-box .switch a { color: var(--accent); }
+  .auth-box label.remember { display: flex; align-items: center; gap: 6px; font-size: 13px;
+              color: var(--muted); }
   footer { color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 26px;
            border-top: 1px solid var(--border); padding-top: 12px; }
 </style>
@@ -42,17 +58,23 @@
     <h1>招聘数据分析仪表盘
       <span style="font-size:13px;color:var(--muted)">（2018 年 BOSS直聘岗位数据）</span>
     </h1>
-    {% set active = {} %}
-    {% for k, v in filters.items() if v %}{% set _ = active.update({k: v}) %}{% endfor %}
-    <nav>
-      <a class="{{ 'active' if page == 'index' }}"   href="{{ url_for('index',   **active) }}">总览</a>
-      <a class="{{ 'active' if page == 'salary' }}"  href="{{ url_for('salary',  **active) }}">薪资</a>
-      <a class="{{ 'active' if page == 'geo' }}"     href="{{ url_for('geo',     **active) }}">地域</a>
-      <a class="{{ 'active' if page == 'skills' }}"  href="{{ url_for('skills',  **active) }}">技能</a>
-      <a class="{{ 'active' if page == 'company' }}" href="{{ url_for('company', **active) }}">要求·公司</a>
-    </nav>
+    {% if page in ('login', 'register') %}
+      {# 登录 / 注册页：极简头，不显示导航与筛选条 #}
+    {% else %}
+      {% set active = {} %}
+      {% for k, v in filters.items() if v %}{% set _ = active.update({k: v}) %}{% endfor %}
+      <nav>
+        <span class="who">{{ current_user }} <a href="{{ url_for('logout') }}">退出</a></span>
+        <a class="{{ 'active' if page == 'index' }}"   href="{{ url_for('index',   **active) }}">总览</a>
+        <a class="{{ 'active' if page == 'salary' }}"  href="{{ url_for('salary',  **active) }}">薪资</a>
+        <a class="{{ 'active' if page == 'geo' }}"     href="{{ url_for('geo',     **active) }}">地域</a>
+        <a class="{{ 'active' if page == 'skills' }}"  href="{{ url_for('skills',  **active) }}">技能</a>
+        <a class="{{ 'active' if page == 'company' }}" href="{{ url_for('company', **active) }}">要求·公司</a>
+      </nav>
+    {% endif %}
   </header>
 
+  {% if page not in ('login', 'register') %}
   <form class="filters" method="get">
     <label>城市
       <select name="city">
@@ -75,6 +97,7 @@
     <button type="submit">筛选</button>
     <a class="reset" href="{{ request.path }}">重置</a>
   </form>
+  {% endif %}
 
   {% block content %}{% endblock %}
 

@@ -1,11 +1,11 @@
-"""项目配置：本地 MySQL 连接参数。
+"""项目配置：本地 MySQL 连接参数与 Web 会话配置。
 
-安全说明：数据库口令不写死在代码里（写死 = 进 git = 一旦仓库公开就泄露）。
-口令从项目根目录的 `.env` 文件读取；该文件不入 git（见 .gitignore），
-模板见 `.env.example`。没有 .env 时回退读环境变量 RECRUIT_DB_PASSWORD。
+安全说明：数据库口令与会话签名密钥都不写死在代码里（写死 = 进 git = 泄露）。
+从项目根目录的 `.env` 文件读取；该文件不入 git（见 .gitignore），模板见 `.env.example`。
 """
 
 import os
+import secrets
 from pathlib import Path
 
 
@@ -41,3 +41,11 @@ WEB = {"host": "127.0.0.1", "port": 5000}
 DATA_SOURCE = "radishT/Job_Analysis（GitHub 开源项目，2018 年 BOSS直聘岗位数据）"
 DATA_PERIOD = "2018 年"
 SALARY_NOTE = "薪资为折算口径：取区间中点；带薪月数（如 13 薪）按月数 ÷ 12 折算为等效月薪"
+
+# 会话签名密钥：从 .env 读取；未配置时随机生成（重启后旧会话失效，开发可接受）
+SECRET_KEY = _env.get("RECRUIT_SECRET_KEY") or secrets.token_hex(32)
+
+# 会话 Cookie 防护（规格：HttpOnly + SameSite=Lax）与"记住我"时长
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_HTTPONLY = True
+REMEMBER_ME_DAYS = 7
