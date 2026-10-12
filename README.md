@@ -40,7 +40,7 @@
 
 ## 快速开始
 
-> 环境：Windows / Python 3.12 / MySQL 8.0
+> 环境：Windows / Python 3.12 / MySQL 8.0（命令为 Windows 写法；Linux / macOS 用户把 `.venv\Scripts\` 换成 `.venv/bin/` 即可）
 
 ```bash
 # 1. 创建数据库与专用账号（utf8mb4），参考 data/README.md
