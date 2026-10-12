@@ -104,13 +104,37 @@ def pie_share(names, values, title):
     return chart.render_embed()
 
 
+# ---- 省份名匹配 ----
+# china.js（echarts v6 配套）注册的地图区域名是省级"全称"（广东省 / 北京市 / 内蒙古自治区…），
+# 而数据里是简称；不补全后缀会因为名字对不上导致整张地图"掉色"（白板）。
+_PROVINCE_FULL_NAMES = {
+    "内蒙古": "内蒙古自治区",
+    "广西": "广西壮族自治区",
+    "西藏": "西藏自治区",
+    "宁夏": "宁夏回族自治区",
+    "新疆": "新疆维吾尔自治区",
+    "香港": "香港特别行政区",
+    "澳门": "澳门特别行政区",
+}
+_MUNICIPALITIES = {"北京", "上海", "天津", "重庆"}
+
+
+def map_region_name(province):
+    """省份简称 -> 中国地图注册名（省级全称）。"""
+    if province in _PROVINCE_FULL_NAMES:
+        return _PROVINCE_FULL_NAMES[province]
+    if province in _MUNICIPALITIES:
+        return province + "市"
+    return province + "省"
+
+
 def city_map(pairs, title="职位数量 · 中国地图（按省份汇总）"):
-    """中国地图热力图；pairs = [(城市, 数量), ...]。"""
+    """中国地图热力图；pairs = [(省份简称, 数量), ...]（内部补全为地图注册的全称）。"""
     if not pairs:
         return None
     chart = (
         Map()
-        .add("职位数量", [[city, int(n)] for city, n in pairs], "china")
+        .add("职位数量", [[map_region_name(p), int(n)] for p, n in pairs], "china")
         .set_global_opts(
             title_opts=_title(title),
             visualmap_opts=opts.VisualMapOpts(max_=max(int(n) for _, n in pairs), is_piecewise=False),
