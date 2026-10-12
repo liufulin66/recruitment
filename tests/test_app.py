@@ -30,6 +30,11 @@ class TestAppPages(unittest.TestCase):
         self.assertIn('value="杭州" selected', html)
         self.assertIn("1,258", html)  # 杭州岗位数（当前数据）
 
+    def test_nav_keeps_filters(self):
+        """规格场景：跨页导航保留筛选条件（链接自带当前参数）。"""
+        html = self.client.get("/salary?city=杭州").get_data(as_text=True)
+        self.assertIn("/skills?city=%E6%9D%AD%E5%B7%9E", html)
+
     def test_empty_result_renders(self):
         """规格场景：无数据也返回 200，并显示空态提示。"""
         resp = self.client.get("/?city=不存在的城市")
