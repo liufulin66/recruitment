@@ -104,7 +104,7 @@ def pie_share(names, values, title):
     return chart.render_embed()
 
 
-def city_map(pairs, title="职位数量 · 中国地图"):
+def city_map(pairs, title="职位数量 · 中国地图（按省份汇总）"):
     """中国地图热力图；pairs = [(城市, 数量), ...]。"""
     if not pairs:
         return None

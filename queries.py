@@ -7,6 +7,7 @@
 对应规格：specs/recruitment-analytics/spec.md
 """
 
+import json
 import warnings
 from pathlib import Path
 
@@ -234,3 +235,39 @@ def get_filter_options(conn) -> dict:
         cur.execute("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL ORDER BY city")
         cities = [row[0] for row in cur.fetchall()]
     return {"cities": cities, "edus": list(EDU_TIERS), "exps": list(EXP_TIERS)}
+
+
+# ---------------- 省份汇总（中国地图用） ----------------
+
+_PROVINCE_MAP_FILE = Path(__file__).resolve().parent / "data" / "city_province.json"
+
+
+def _load_city_province() -> dict:
+    if not _PROVINCE_MAP_FILE.exists():
+        return {}
+    return json.loads(_PROVINCE_MAP_FILE.read_text(encoding="utf-8"))
+
+
+# 城市 → 省份简称（对应 ECharts 中国地图的省级区域名）
+CITY_TO_PROVINCE = _load_city_province()
+
+
+def aggregate_by_province(city_counts, mapping=None) -> dict:
+    """纯函数：把 [(城市, 数量)] 按"城市→省份"对照汇总为 {省份: 数量}。
+
+    对不上省份的城市直接略过（地图上也落不了位）；对照表完整性由测试保证。
+    """
+    m = CITY_TO_PROVINCE if mapping is None else mapping
+    out = {}
+    for city, n in city_counts:
+        province = m.get(city)
+        if province:
+            out[province] = out.get(province, 0) + int(n)
+    return out
+
+
+def get_province_totals(conn, filters=None) -> list[dict]:
+    """省份维度职位数（城市数量汇总；供中国地图着色），按数量降序。"""
+    city_rows = get_top_cities(conn, top_n=1000, filters=filters)
+    totals = aggregate_by_province([(r["city"], r["n"]) for r in city_rows])
+    return [{"province": p, "n": n} for p, n in sorted(totals.items(), key=lambda kv: -kv[1])]

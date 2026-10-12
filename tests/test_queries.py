@@ -1,4 +1,4 @@
-"""第 5 组用例：筛选解析 / SQL 聚合 / 技能统计 / 共现矩阵。
+"""第 5 组用例：筛选解析 / SQL 聚合 / 技能统计 / 共现矩阵 / 省份汇总。
 
 纯函数部分无条件运行；访问数据库的用例在 MySQL 不可用时自动跳过。
 """
@@ -6,11 +6,14 @@
 import unittest
 
 from queries import (
+    CITY_TO_PROVINCE,
     STOPWORDS,
     _where,
+    aggregate_by_province,
     build_cooccurrence_matrix,
     get_group_stats,
     get_overview,
+    get_province_totals,
     get_skill_cooccurrence,
     get_skill_top,
     get_top_cities,
@@ -55,6 +58,16 @@ class TestCooccurrenceMatrix(unittest.TestCase):
         pairs = [("mysql", "python", 1)]
         m = build_cooccurrence_matrix(pairs, ["python", "mysql"])
         self.assertEqual(m, [[0, 1], [1, 0]])
+
+
+class TestAggregateByProvince(unittest.TestCase):
+    def test_aggregate(self):
+        """纯函数：城市数量按省份汇总；未知城市略过。"""
+        mapping = {"杭州": "浙江", "宁波": "浙江", "北京": "北京"}
+        totals = aggregate_by_province(
+            [("杭州", 10), ("宁波", 5), ("北京", 7), ("未知城", 3)], mapping=mapping
+        )
+        self.assertEqual(totals, {"浙江": 15, "北京": 7})
 
 
 class TestAgainstDatabase(unittest.TestCase):
@@ -119,6 +132,21 @@ class TestAgainstDatabase(unittest.TestCase):
         idx = {s: i for i, s in enumerate(skills)}
         if "java" in idx and "mysql" in idx:  # 合理抽查：这俩常同岗出现
             self.assertGreater(m[idx["java"]][idx["mysql"]], 1000)
+
+    def test_province_mapping_coverage(self):
+        """城市→省份对照表覆盖库中全部城市（防止新增数据后地图静默掉色）。"""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT city FROM jobs")
+            cities = {r[0] for r in cur.fetchall()}
+        missing = cities - set(CITY_TO_PROVINCE)
+        self.assertEqual(missing, set())
+
+    def test_province_totals_sum(self):
+        """省份汇总总数 == 全量职位数（映射完整时应严格相等）。"""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM jobs")
+            total = cur.fetchone()[0]
+        self.assertEqual(sum(r["n"] for r in get_province_totals(self.conn)), total)
 
 
 if __name__ == "__main__":

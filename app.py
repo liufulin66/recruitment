@@ -16,6 +16,7 @@ from queries import (
     get_filter_options,
     get_group_stats,
     get_overview,
+    get_province_totals,
     get_salary_values,
     get_skill_cooccurrence,
     get_skill_top,
@@ -94,14 +95,14 @@ def salary():
 def geo():
     f = parse_filters(request.args)
     top10 = _query(get_top_cities, 10, f)
-    all_cities = _query(get_top_cities, 400, f)  # 地图尽量铺满（库中城市共 275 个）
+    provinces = _query(get_province_totals, f)  # 城市数按省份汇总后上地图
     return render_template(
         "geo.html",
         page="geo",
         filters=f,
         charts=[
             charts.top_cities_chart(top10),
-            charts.city_map([(c["city"], c["n"]) for c in all_cities]),
+            charts.city_map([(r["province"], r["n"]) for r in provinces]),
         ],
     )
 
