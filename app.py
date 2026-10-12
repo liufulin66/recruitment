@@ -1,4 +1,4 @@
-"""Web 服务：招聘数据分析仪表盘（Flask，5 个页面 + 本地账号登录）。
+"""Web 服务：招聘数据分析仪表盘（Flask，5 个页面 + 本地账号登录 + 登录验证码）。
 
 运行方式（项目根目录）：
     .venv\\Scripts\\python.exe -m app
@@ -10,9 +10,10 @@
 from datetime import timedelta
 from urllib.parse import quote
 
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, Response, redirect, render_template, request, session, url_for
 
 import auth
+import captcha
 import charts
 from config import (
     DATA_PERIOD,
@@ -82,7 +83,8 @@ def require_login():
         if session.get("user_id"):  # 已登录又访问登录 / 注册页 -> 回总览
             return redirect(url_for("index"))
         return None
-    if request.endpoint == "static":  # 静态资源放行（登录页样式、图表 JS 依赖它）
+    if request.endpoint in ("static", "captcha_image"):
+        # 静态资源与验证码图片放行（登录页依赖它们，此时必然未登录）
         return None
     if not session.get("user_id"):
         target = request.path
@@ -103,22 +105,40 @@ def _safe_next(next_path):
     return None
 
 
-# ---------------- 账号：登录 / 注册 / 登出 ----------------
+# ---------------- 账号：登录 / 注册 / 登出 / 验证码 ----------------
+
+@app.route("/captcha")
+def captcha_image():
+    """生成新验证码：写入会话（覆盖旧码）并渲染为 SVG 返回。"""
+    code = captcha.generate_code()
+    session[captcha.SESSION_KEY] = code
+    return Response(
+        captcha.captcha_svg(code),
+        mimetype="image/svg+xml",
+        headers={"Cache-Control": "no-store"},  # 禁止缓存，保证每次都是新码
+    )
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     next_path = request.values.get("next", "")
     if request.method == "POST":
-        user = auth.verify_login(request.form.get("username"), request.form.get("password"))
-        if user:
-            session.clear()  # 清旧会话再写入，避免会话固定问题
-            session["user_id"] = user[0]
-            session["username"] = user[1]
-            # 勾选"记住我"：会话升级为 7 天永久会话；否则关浏览器即失效
-            session.permanent = bool(request.form.get("remember_me"))
-            return redirect(_safe_next(next_path) or url_for("index"))
-        error = "用户名或密码错误"
+        # 一次性验证码：取出即作废（无论本次校验成败，失败后刷新页面会自动换新码）
+        expected = session.pop(captcha.SESSION_KEY, None)
+        given = (request.form.get("captcha") or "").strip().upper()
+        if not expected or given != expected:
+            error = "验证码错误"
+        else:
+            user = auth.verify_login(request.form.get("username"), request.form.get("password"))
+            if user:
+                session.clear()  # 清旧会话再写入，避免会话固定问题
+                session["user_id"] = user[0]
+                session["username"] = user[1]
+                # 勾选"记住我"：会话升级为 7 天永久会话；否则关浏览器即失效
+                session.permanent = bool(request.form.get("remember_me"))
+                return redirect(_safe_next(next_path) or url_for("index"))
+            error = "用户名或密码错误"
     return render_template("login.html", page="login", filters={}, error=error, next_path=next_path)
 
 

@@ -12,6 +12,11 @@
     <label>密码
       <input type="password" name="password" required>
     </label>
+    <label>验证码
+      <input type="text" name="captcha" required maxlength="4" autocomplete="off">
+    </label>
+    <img class="captcha-img" src="{{ url_for('captcha_image') }}" alt="验证码，点击刷新"
+         title="看不清？点击刷新" onclick="this.src='{{ url_for('captcha_image') }}?t=' + Date.now()">
     <label class="remember">
       <input type="checkbox" name="remember_me" value="1"> 记住我（7 天内免登录）
     </label>

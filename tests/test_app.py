@@ -1,7 +1,7 @@
 """页面与账号流程用例：需要数据库；不可用时整体跳过。
 
 - TestAppPages：原页面冒烟（改为"先登录再访问"）；
-- TestAuthFlow：注册 / 登录 / 门卫 / 会话 / 登出等规格场景。
+- TestAuthFlow：注册 / 登录 / 验证码 / 门卫 / 会话 / 登出等规格场景。
 """
 
 import unittest
@@ -35,13 +35,26 @@ class AppTestCase(unittest.TestCase):
             self._ensure_login(c)
         return c
 
-    @staticmethod
-    def _ensure_login(client):
+    @classmethod
+    def _seed_captcha(cls, client, code="TEST"):
+        """把固定验证码写进会话（绕过图形交互，便于测试登录提交）。"""
+        with client.session_transaction() as sess:
+            sess["captcha_code"] = code
+
+    @classmethod
+    def _login(cls, client, username, password, **extra):
+        """带（固定）验证码提交登录。"""
+        cls._seed_captcha(client)
+        data = {"username": username, "password": password, "captcha": "TEST", **extra}
+        return client.post("/login", data=data)
+
+    @classmethod
+    def _ensure_login(cls, client):
         """测试账号不存在则注册（会自动登录），存在则直接登录——幂等，可反复跑。"""
         resp = client.post("/register", data={"username": TEST_USER, "password": TEST_PASSWORD})
         if resp.status_code == 302:
             return
-        client.post("/login", data={"username": TEST_USER, "password": TEST_PASSWORD})
+        cls._login(client, TEST_USER, TEST_PASSWORD)
 
 
 class TestAppPages(AppTestCase):
@@ -82,13 +95,14 @@ class TestAuthFlow(AppTestCase):
     """账号流程规格场景。"""
 
     def test_gate_redirects_anonymous(self):
-        """门卫：未登录访问数据页 -> 302 到登录页并带 next；登录/注册/静态资源放行。"""
+        """门卫：未登录访问数据页 -> 302 到登录页并带 next；登录/注册/验证码/静态资源放行。"""
         c = self.client(logged_in=False)
         resp = c.get("/")
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(resp.headers["Location"].startswith("/login?next="))
         self.assertEqual(c.get("/login").status_code, 200)
         self.assertEqual(c.get("/register").status_code, 200)
+        self.assertEqual(c.get("/captcha").status_code, 200)
         self.assertEqual(c.get("/static/assets/echarts.min.js").status_code, 200)
 
     def test_register_success_autologin(self):
@@ -108,20 +122,55 @@ class TestAuthFlow(AppTestCase):
         resp = c.post("/register", data={"username": "whoever", "password": "12345"})
         self.assertIn("密码长度至少", resp.get_data(as_text=True))
 
+    def test_captcha_image_and_session(self):
+        """规格场景：验证码接口返回图形并写入会话；未登录可访问。"""
+        c = self.client(logged_in=False)
+        resp = c.get("/captcha")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.mimetype, "image/svg+xml")
+        with c.session_transaction() as sess:
+            code = sess.get("captcha_code")
+        self.assertTrue(code and len(code) == 4)
+
+    def test_captcha_required_and_wrong(self):
+        """规格场景：验证码缺失 / 错误 -> 提示验证码错误，不进行凭据校验。"""
+        self.client()  # 确保账号存在（若此处误用正确凭证也不该因此通过）
+        c = self.client(logged_in=False)
+        resp = c.post("/login", data={"username": TEST_USER, "password": TEST_PASSWORD})
+        self.assertIn("验证码错误", resp.get_data(as_text=True))
+
+        self._seed_captcha(c, "TEST")
+        resp = c.post(
+            "/login", data={"username": TEST_USER, "password": TEST_PASSWORD, "captcha": "XXXX"}
+        )
+        self.assertIn("验证码错误", resp.get_data(as_text=True))
+
+    def test_captcha_one_time(self):
+        """规格场景：验证码一次性——同一码二次提交被拒（防重放）。"""
+        self.client()  # 确保账号存在
+        c = self.client(logged_in=False)
+        self._seed_captcha(c, "TEST")
+        # 第一次：验证码对、密码错 -> 验证码被消耗
+        resp = c.post("/login", data={"username": TEST_USER, "password": "wrong", "captcha": "TEST"})
+        self.assertIn("用户名或密码错误", resp.get_data(as_text=True))
+        # 第二次：旧验证码已作废 -> 即使密码正确也提示验证码错误
+        resp = c.post(
+            "/login", data={"username": TEST_USER, "password": TEST_PASSWORD, "captcha": "TEST"}
+        )
+        self.assertIn("验证码错误", resp.get_data(as_text=True))
+
     def test_login_wrong_credentials(self):
         """规格场景：凭证错误统一提示，不透露具体原因。"""
+        self.client()  # 确保账号存在
         c = self.client(logged_in=False)
-        resp = c.post("/login", data={"username": TEST_USER, "password": "wrong-pass"})
+        resp = self._login(c, TEST_USER, "wrong-pass")
         self.assertIn("用户名或密码错误", resp.get_data(as_text=True))
 
     def test_login_redirects_back(self):
         """规格场景：登录成功后跳回登录前要访问的页面。"""
         self.client()  # 确保账号存在
         c = self.client(logged_in=False)
-        resp = c.post(
-            "/login",
-            data={"username": TEST_USER, "password": TEST_PASSWORD, "next": "/salary?city=杭州"},
-        )
+        resp = self._login(c, TEST_USER, TEST_PASSWORD, next="/salary?city=杭州")
         self.assertEqual(resp.status_code, 302)
         self.assertIn("/salary", resp.headers["Location"])
 
@@ -129,19 +178,20 @@ class TestAuthFlow(AppTestCase):
         """规格场景：勾选记住我 -> 永久会话；未勾选 -> 浏览器会话。"""
         self.client()  # 确保账号存在
         c = self.client(logged_in=False)
-        c.post("/login", data={"username": TEST_USER, "password": TEST_PASSWORD, "remember_me": "1"})
+        self._login(c, TEST_USER, TEST_PASSWORD, remember_me="1")
         with c.session_transaction() as sess:
             self.assertTrue(sess.permanent)
 
         c2 = self.client(logged_in=False)
-        c2.post("/login", data={"username": TEST_USER, "password": TEST_PASSWORD})
+        self._login(c2, TEST_USER, TEST_PASSWORD)
         with c2.session_transaction() as sess:
             self.assertFalse(sess.permanent)
 
     def test_cookie_flags(self):
         """规格场景：会话 Cookie 带 HttpOnly 与 SameSite=Lax。"""
+        self.client()  # 确保账号存在
         c = self.client(logged_in=False)
-        resp = c.post("/login", data={"username": TEST_USER, "password": TEST_PASSWORD})
+        resp = self._login(c, TEST_USER, TEST_PASSWORD)
         cookies = "; ".join(resp.headers.getlist("Set-Cookie"))
         self.assertIn("HttpOnly", cookies)
         self.assertIn("SameSite=Lax", cookies)
