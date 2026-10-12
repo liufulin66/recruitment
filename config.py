@@ -33,3 +33,11 @@ DB = {
     "database": _env.get("RECRUIT_DB_NAME", "recruitment"),
     "charset": "utf8mb4",
 }
+
+# Web 服务
+WEB = {"host": "127.0.0.1", "port": 5000}
+
+# 页脚数据来源标注（规格：每个页面展示来源与覆盖时间范围）
+DATA_SOURCE = "radishT/Job_Analysis（GitHub 开源项目，2018 年 BOSS直聘岗位数据）"
+DATA_PERIOD = "2018 年"
+SALARY_NOTE = "薪资为折算口径：取区间中点；带薪月数（如 13 薪）按月数 ÷ 12 折算为等效月薪"

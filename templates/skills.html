@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="note">说明：技能数据来自数据集自带的岗位技能表，不含城市 / 经验 / 学历维度，
+因此本页图表不参与顶部筛选（全量展示）。</div>
+{% for chart in charts %}
+<section class="chart-box">
+  {% if chart %}{{ chart | safe }}{% else %}<div class="empty">暂无技能数据</div>{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="cards">
+  <div class="card"><div class="num">{{ '{:,}'.format(overview.job_count) }}</div>
+    <div class="label">职位总数</div></div>
+  <div class="card"><div class="num">{{ '¥{:,.0f}'.format(overview.avg_salary) if overview.avg_salary is not none else '—' }}</div>
+    <div class="label">平均薪资（折算口径）</div></div>
+  <div class="card"><div class="num">{{ overview.top_city or '—' }}</div>
+    <div class="label">职位最多城市</div></div>
+  <div class="card"><div class="num">{{ overview.top_skill or '—' }}</div>
+    <div class="label">最高频技能（全量口径）</div></div>
+</div>
+
+{% for chart in charts %}
+<section class="chart-box">
+  {% if chart %}{{ chart | safe }}{% else %}<div class="empty">当前筛选条件下暂无数据</div>{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

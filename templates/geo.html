@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+{% for chart in charts %}
+<section class="chart-box">
+  {% if chart %}{{ chart | safe }}{% else %}<div class="empty">当前筛选条件下暂无数据</div>{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

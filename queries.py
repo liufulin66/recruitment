@@ -7,9 +7,16 @@
 对应规格：specs/recruitment-analytics/spec.md
 """
 
+import warnings
 from pathlib import Path
 
 import pandas as pd
+
+from etl.cleaning import EDU_TIERS, EXP_TIERS
+
+# pandas 对"非 SQLAlchemy 连接"会提示走了未官方测试的路径。
+# 本项目刻意选择 PyMySQL + 手写 SQL（见设计 D2），该提示已知且无害，静默之。
+warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy connectable")
 
 # 三维筛选：请求参数名 → jobs 表列名（同名）
 FILTER_FIELDS = ("city", "edu", "exp")
@@ -208,3 +215,22 @@ def get_skill_cooccurrence(conn, top_n=10) -> dict:
     for i, s in enumerate(skills):
         matrix[i][i] = freq[s]
     return {"skills": skills, "matrix": matrix}
+
+
+# ---------------- 页面辅助（第 6 组） ----------------
+
+def get_salary_values(conn, filters=None) -> list[float]:
+    """筛选后全部记录的等效平均月薪（供直方图 / 箱线图；缺失薪资自动排除）。"""
+    where, params = _where(filters)
+    cond = (where + " AND") if where else "WHERE"
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT salary_avg FROM jobs {cond} salary_avg IS NOT NULL", params)
+        return [float(row[0]) for row in cur.fetchall()]
+
+
+def get_filter_options(conn) -> dict:
+    """筛选控件选项：城市取库中全部取值（按名称排序）；学历 / 经验用固定档位。"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL ORDER BY city")
+        cities = [row[0] for row in cur.fetchall()]
+    return {"cities": cities, "edus": list(EDU_TIERS), "exps": list(EXP_TIERS)}

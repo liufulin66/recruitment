@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}招聘数据分析仪表盘{% endblock %}</title>
+<style>
+  :root { --border: #e3e6eb; --muted: #6b7280; --accent: #5470c6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+         color: #1f2430; background: #f6f7f9; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 18px 20px 40px; }
+  h1 { font-size: 22px; margin: 6px 0 14px; }
+  nav a { display: inline-block; margin-right: 14px; padding: 6px 2px; color: #374151;
+          text-decoration: none; border-bottom: 2px solid transparent; }
+  nav a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+             background: #fff; border: 1px solid var(--border); border-radius: 8px;
+             padding: 10px 14px; margin: 12px 0 18px; }
+  .filters select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+                    background: #fff; min-width: 110px; }
+  .filters button { padding: 6px 16px; border: 0; border-radius: 6px; background: var(--accent);
+                    color: #fff; cursor: pointer; }
+  .filters .reset { color: var(--muted); font-size: 13px; text-decoration: none; }
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .card { flex: 1 1 200px; background: #fff; border: 1px solid var(--border);
+          border-radius: 10px; padding: 14px 16px; }
+  .card .num { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .card .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .chart-box { background: #fff; border: 1px solid var(--border); border-radius: 10px;
+               padding: 8px 10px; margin-bottom: 16px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+  .note { color: var(--muted); font-size: 13px; background: #fff; border: 1px dashed var(--border);
+          border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+  footer { color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 26px;
+           border-top: 1px solid var(--border); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>招聘数据分析仪表盘
+      <span style="font-size:13px;color:var(--muted)">（2018 年 BOSS直聘岗位数据）</span>
+    </h1>
+    {% set active = {} %}
+    {% for k, v in filters.items() if v %}{% set _ = active.update({k: v}) %}{% endfor %}
+    <nav>
+      <a class="{{ 'active' if page == 'index' }}"   href="{{ url_for('index',   **active) }}">总览</a>
+      <a class="{{ 'active' if page == 'salary' }}"  href="{{ url_for('salary',  **active) }}">薪资</a>
+      <a class="{{ 'active' if page == 'geo' }}"     href="{{ url_for('geo',     **active) }}">地域</a>
+      <a class="{{ 'active' if page == 'skills' }}"  href="{{ url_for('skills',  **active) }}">技能</a>
+      <a class="{{ 'active' if page == 'company' }}" href="{{ url_for('company', **active) }}">要求·公司</a>
+    </nav>
+  </header>
+
+  <form class="filters" method="get">
+    <label>城市
+      <select name="city">
+        <option value="">全部</option>
+        {% for c in filter_options.cities %}<option value="{{ c }}" {{ 'selected' if filters.city == c }}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>经验
+      <select name="exp">
+        <option value="">全部</option>
+        {% for e in filter_options.exps %}<option value="{{ e }}" {{ 'selected' if filters.exp == e }}>{{ e }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>学历
+      <select name="edu">
+        <option value="">全部</option>
+        {% for d in filter_options.edus %}<option value="{{ d }}" {{ 'selected' if filters.edu == d }}>{{ d }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">筛选</button>
+    <a class="reset" href="{{ request.path }}">重置</a>
+  </form>
+
+  {% block content %}{% endblock %}
+
+  <footer>
+    数据来源：{{ DATA_SOURCE }}<br>
+    数据覆盖时间范围：{{ DATA_PERIOD }} ｜ {{ SALARY_NOTE }}
+  </footer>
+</div>
+</body>
+</html>
