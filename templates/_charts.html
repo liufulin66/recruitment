@@ -1,0 +1,7 @@
+{% macro render_charts(charts, empty_message='当前筛选条件下暂无数据') -%}
+{% for chart in charts %}
+<section class="chart-box">
+  {% if chart %}{{ chart | safe }}{% else %}<div class="empty">{{ empty_message }}</div>{% endif %}
+</section>
+{% endfor %}
+{%- endmacro %}

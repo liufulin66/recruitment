@@ -58,26 +58,33 @@
 <div class="wrap">
   <header>
     <h1>招聘数据分析仪表盘
-      <span style="font-size:13px;color:var(--muted)">（2018 年 BOSS直聘岗位数据）</span>
+      {% if current_snapshot %}<span style="font-size:13px;color:var(--muted)">（{{ current_snapshot.period }} 岗位数据）</span>{% endif %}
     </h1>
     {% if page in ('login', 'register') %}
       {# 登录 / 注册页：极简头，不显示导航与筛选条 #}
     {% else %}
       {% set active = {} %}
-      {% for k, v in filters.items() if v %}{% set _ = active.update({k: v}) %}{% endfor %}
+      {# 导航链接保留筛选参数（含期次）；snapshot_id 是内部维度，不进 URL #}
+      {% for k, v in filters.items() if v and k != 'snapshot_id' %}{% set _ = active.update({k: v}) %}{% endfor %}
       <nav>
-        <span class="who">{{ current_user }} <a href="{{ url_for('logout') }}">退出</a></span>
-        <a class="{{ 'active' if page == 'index' }}"   href="{{ url_for('index',   **active) }}">总览</a>
-        <a class="{{ 'active' if page == 'salary' }}"  href="{{ url_for('salary',  **active) }}">薪资</a>
-        <a class="{{ 'active' if page == 'geo' }}"     href="{{ url_for('geo',     **active) }}">地域</a>
-        <a class="{{ 'active' if page == 'skills' }}"  href="{{ url_for('skills',  **active) }}">技能</a>
-        <a class="{{ 'active' if page == 'company' }}" href="{{ url_for('company', **active) }}">要求·公司</a>
+        <span class="who">{{ current_user }} <a href="{{ url_for('auth.logout') }}">退出</a></span>
+        <a class="{{ 'active' if page == 'index' }}"   href="{{ url_for('dashboard.index',   **active) }}">总览</a>
+        <a class="{{ 'active' if page == 'salary' }}"  href="{{ url_for('dashboard.salary',  **active) }}">薪资</a>
+        <a class="{{ 'active' if page == 'geo' }}"     href="{{ url_for('dashboard.geo',     **active) }}">地域</a>
+        <a class="{{ 'active' if page == 'skills' }}"  href="{{ url_for('dashboard.skills',  **active) }}">技能</a>
+        <a class="{{ 'active' if page == 'company' }}" href="{{ url_for('dashboard.company', **active) }}">要求·公司</a>
       </nav>
     {% endif %}
   </header>
 
   {% if page not in ('login', 'register') %}
   <form class="filters" method="get">
+    <label>期次
+      <select name="snapshot">
+        <option value="">最新</option>
+        {% for s in snapshots %}<option value="{{ s.label }}" {{ 'selected' if filters.snapshot == s.label }}>{{ s.label }}</option>{% endfor %}
+      </select>
+    </label>
     <label>城市
       <select name="city">
         <option value="">全部</option>
@@ -103,10 +110,12 @@
 
   {% block content %}{% endblock %}
 
+  {% if current_snapshot %}
   <footer>
-    数据来源：{{ DATA_SOURCE }}<br>
-    数据覆盖时间范围：{{ DATA_PERIOD }} ｜ {{ SALARY_NOTE }}
+    数据来源：{{ current_snapshot.source if current_snapshot }}<br>
+    数据覆盖时间范围：{{ current_snapshot.period if current_snapshot }}{% if current_snapshot and current_snapshot.note %} ｜ {{ current_snapshot.note }}{% endif %} ｜ {{ SALARY_NOTE }}
   </footer>
+  {% endif %}
 </div>
 </body>
 </html>

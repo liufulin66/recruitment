@@ -25,25 +25,30 @@ def _load_env_file(path: Path) -> dict:
 _ROOT = Path(__file__).resolve().parent
 _env = _load_env_file(_ROOT / ".env")
 
+
+def _setting(name, default=None):
+    """进程环境优先，其次 .env，最后默认值；便于部署和隔离测试。"""
+    return os.environ.get(name, _env.get(name, default))
+
+
 DB = {
-    "host": _env.get("RECRUIT_DB_HOST", "127.0.0.1"),
-    "port": int(_env.get("RECRUIT_DB_PORT", "3306")),
-    "user": _env.get("RECRUIT_DB_USER", "recruit"),
-    "password": _env.get("RECRUIT_DB_PASSWORD") or os.environ.get("RECRUIT_DB_PASSWORD", ""),
-    "database": _env.get("RECRUIT_DB_NAME", "recruitment"),
+    "host": _setting("RECRUIT_DB_HOST", "127.0.0.1"),
+    "port": int(_setting("RECRUIT_DB_PORT", "3306")),
+    "user": _setting("RECRUIT_DB_USER", "recruit"),
+    "password": _setting("RECRUIT_DB_PASSWORD", ""),
+    "database": _setting("RECRUIT_DB_NAME", "recruitment"),
     "charset": "utf8mb4",
 }
 
 # Web 服务
 WEB = {"host": "127.0.0.1", "port": 5000}
+WEB_DEBUG = _setting("RECRUIT_DEBUG", "0").lower() in ("1", "true", "yes")
 
-# 页脚数据来源标注（规格：每个页面展示来源与覆盖时间范围）
-DATA_SOURCE = "radishT/Job_Analysis（GitHub 开源项目，2018 年 BOSS直聘岗位数据）"
-DATA_PERIOD = "2018 年"
+# 页脚薪资口径说明（数据来源与时间范围改为按当前期次从 snapshots 表动态读取，见 queries.get_snapshots）
 SALARY_NOTE = "薪资为折算口径：取区间中点；带薪月数（如 13 薪）按月数 ÷ 12 折算为等效月薪"
 
 # 会话签名密钥：从 .env 读取；未配置时随机生成（重启后旧会话失效，开发可接受）
-SECRET_KEY = _env.get("RECRUIT_SECRET_KEY") or secrets.token_hex(32)
+SECRET_KEY = _setting("RECRUIT_SECRET_KEY") or secrets.token_hex(32)
 
 # 会话 Cookie 防护（规格：HttpOnly + SameSite=Lax）与"记住我"时长
 SESSION_COOKIE_SAMESITE = "Lax"

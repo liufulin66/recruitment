@@ -7,8 +7,9 @@
 import re
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from charts import map_region_name
+from charts import map_region_name, salary_hist
 from queries import CITY_TO_PROVINCE
 
 CHINA_JS = Path(__file__).resolve().parent.parent / "static" / "assets" / "maps" / "china.js"
@@ -27,6 +28,24 @@ class TestMapRegionName(unittest.TestCase):
 
     def test_plain_province(self):
         self.assertEqual(map_region_name("广东"), "广东省")
+
+
+class TestSalaryHistogram(unittest.TestCase):
+    def test_boundary_maximum_is_not_lost(self):
+        with patch("charts.bar") as bar:
+            salary_hist([1000, 2000, 20000, 20000.5])
+        labels, counts, _ = bar.call_args.args
+        self.assertEqual(sum(counts), 4)
+        self.assertEqual(counts[-1], 2)
+        self.assertEqual(labels[-1], "20k-22k")
+
+    def test_zero_only_has_one_bin(self):
+        with patch("charts.bar") as bar:
+            salary_hist([0, 0])
+        self.assertEqual(bar.call_args.args[1], [2])
+
+    def test_empty_returns_none(self):
+        self.assertIsNone(salary_hist([None]))
 
 
 class TestAgainstMapRegistration(unittest.TestCase):

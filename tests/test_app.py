@@ -1,4 +1,4 @@
-"""页面与账号流程用例：需要数据库；不可用时整体跳过。
+"""页面与账号流程用例：显式选择独立测试库，固定样例逐例重置。
 
 - TestAppPages：原页面冒烟（改为"先登录再访问"）；
 - TestAuthFlow：注册 / 登录 / 验证码 / 门卫 / 会话 / 登出等规格场景。
@@ -6,27 +6,16 @@
 
 import unittest
 import uuid
+from unittest.mock import patch
 
-TEST_USER = "test_user"
-TEST_PASSWORD = "test123456"
+import captcha
+from tests.support import MySQLTestCase, TEST_USER, TEST_PASSWORD
 
+class AppTestCase(MySQLTestCase):
+    """每例使用独立测试库中的固定小样例。"""
 
-class AppTestCase(unittest.TestCase):
-    """公共底座：确认数据库可用，准备 app 与"默认已登录"的 client 工厂。"""
-
-    @classmethod
-    def setUpClass(cls):
-        try:
-            from db import get_connection
-
-            conn = get_connection()
-            conn.close()
-        except Exception as e:
-            raise unittest.SkipTest(f"数据库不可用：{e}")
-        from app import app
-
-        app.testing = True
-        cls.app = app
+    # HTTP 请求自己管理应用上下文，避免多个请求共享 g 中的筛选缓存。
+    keep_app_context = False
 
     def client(self, logged_in=True):
         """返回一个新 client；默认已完成登录（幂等测试账号）。"""
@@ -38,8 +27,10 @@ class AppTestCase(unittest.TestCase):
     @classmethod
     def _seed_captcha(cls, client, code="TEST"):
         """把固定验证码写进会话（绕过图形交互，便于测试登录提交）。"""
-        with client.session_transaction() as sess:
-            sess["captcha_code"] = code
+        with patch("captcha.generate_code", return_value=code):
+            response = client.get("/captcha")
+        if response.status_code != 200:
+            raise AssertionError("创建测试验证码失败")
 
     @classmethod
     def _login(cls, client, username, password, **extra):
@@ -50,10 +41,7 @@ class AppTestCase(unittest.TestCase):
 
     @classmethod
     def _ensure_login(cls, client):
-        """测试账号不存在则注册（会自动登录），存在则直接登录——幂等，可反复跑。"""
-        resp = client.post("/register", data={"username": TEST_USER, "password": TEST_PASSWORD})
-        if resp.status_code == 302:
-            return
+        """固定账号由测试样例准备，直接登录。"""
         cls._login(client, TEST_USER, TEST_PASSWORD)
 
 
@@ -68,15 +56,63 @@ class TestAppPages(AppTestCase):
                 self.assertEqual(c.get(path).status_code, 200)
 
     def test_filter_marks_selected_and_applies(self):
-        """筛选生效：下拉选中 + 数据随筛选变化。"""
-        html = self.client().get("/?city=杭州").get_data(as_text=True)
+        """筛选生效：下拉选中 + 数据随筛选变化（2018 期杭州）。"""
+        html = self.client().get("/?snapshot=2018&city=杭州").get_data(as_text=True)
+        self.assertIn('value="2018" selected', html)
         self.assertIn('value="杭州" selected', html)
-        self.assertIn("1,258", html)  # 杭州岗位数（当前数据）
+        self.assertIn("2", html)  # 2018 期杭州岗位数
+
+    def test_default_latest_and_snapshot_switch(self):
+        """规格场景：默认最新期；切换期次后统计与页脚联动；未知期次回退最新。"""
+        html = self.client().get("/").get_data(as_text=True)  # 默认 2020
+        self.assertIn("2", html)                     # 2020 期职位总数
+        self.assertIn("fixture-2020", html)                  # 页脚来源随期次
+        html18 = self.client().get("/?snapshot=2018").get_data(as_text=True)
+        self.assertIn("4", html18)                # 2018 期职位总数
+        self.assertIn("fixture-2018", html18)               # 页脚来源随之变化
+        # 未知期次回退最新期（旧链接容错）
+        self.assertIn("2", self.client().get("/?snapshot=不存在的期次").get_data(as_text=True))
+
+    def test_retired_links_and_source_on_all_pages(self):
+        client = self.client()
+        for path in ("/", "/salary", "/geo", "/skills", "/company"):
+            for query in ("", "?snapshot=2021", "?snapshot=2020&city=北京"):
+                with self.subTest(path=path, query=query):
+                    response = client.get(path + query)
+                    self.assertEqual(response.status_code, 200)
+                    html = response.get_data(as_text=True)
+                    if query:
+                        self.assertIn('value="2020" selected', html)
+                    else:
+                        self.assertIn('<option value="">最新</option>', html)
+                    self.assertIn('value="2018"', html)
+                    self.assertNotIn('value="2021"', html)
+                    for text in ("fixture-2020", "2020 年 4 月公开快照", "12 城市 IT 岗位样本",
+                                 "无逐条发布日期", "无技能数据"):
+                        self.assertIn(text, html)
+                    if "city=" in query:
+                        self.assertIn('value="北京" selected', html)
+                        self.assertIn("/salary?snapshot=2020&amp;city=%E5%8C%97%E4%BA%AC", html)
+            with self.subTest(path=path, snapshot="2018"):
+                html = client.get(path + "?snapshot=2018").get_data(as_text=True)
+                self.assertIn('value="2018" selected', html)
+                self.assertIn("fixture-2018", html)
+                self.assertNotIn("12 城市 IT 岗位样本", html)
+
+    def test_skills_degrade_for_snapshot_without_skills(self):
+        """规格场景：无技能数据的期次显示降级提示，不呈现其他期数据。"""
+        html = self.client().get("/skills").get_data(as_text=True)  # 默认 2020
+        self.assertIn("本期数据不含技能信息", html)
+        html18 = self.client().get("/skills?snapshot=2018").get_data(as_text=True)
+        self.assertNotIn("本期数据不含技能信息", html18)
 
     def test_nav_keeps_filters(self):
-        """规格场景：跨页导航保留筛选条件（链接自带当前参数）。"""
-        html = self.client().get("/salary?city=杭州").get_data(as_text=True)
-        self.assertIn("/skills?city=%E6%9D%AD%E5%B7%9E", html)
+        """规格场景：跨页导航保留筛选条件（含期次；链接自带当前参数）。
+
+        断言里的 &amp; 是 Jinja2 对 href 中 & 的 HTML 转义，属预期输出。
+        """
+        html = self.client().get("/salary?snapshot=2018&city=杭州").get_data(as_text=True)
+        self.assertIn("/skills?snapshot=2018&amp;city=%E6%9D%AD%E5%B7%9E", html)
 
     def test_empty_result_renders(self):
         """规格场景：无数据也返回 200，并显示空态提示。"""
@@ -103,7 +139,9 @@ class TestAuthFlow(AppTestCase):
         self.assertEqual(c.get("/login").status_code, 200)
         self.assertEqual(c.get("/register").status_code, 200)
         self.assertEqual(c.get("/captcha").status_code, 200)
-        self.assertEqual(c.get("/static/assets/echarts.min.js").status_code, 200)
+        response = c.get("/static/assets/echarts.min.js")
+        self.assertEqual(response.status_code, 200)
+        response.close()
 
     def test_register_success_autologin(self):
         """规格场景：注册成功自动登录。"""
@@ -129,8 +167,9 @@ class TestAuthFlow(AppTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.mimetype, "image/svg+xml")
         with c.session_transaction() as sess:
-            code = sess.get("captcha_code")
-        self.assertTrue(code and len(code) == 4)
+            challenge_id = sess.get(captcha.SESSION_KEY)
+            self.assertNotIn("captcha_code", sess)
+        self.assertTrue(challenge_id and len(challenge_id) >= 32)
 
     def test_captcha_required_and_wrong(self):
         """规格场景：验证码缺失 / 错误 -> 提示验证码错误，不进行凭据校验。"""
@@ -201,7 +240,7 @@ class TestAuthFlow(AppTestCase):
         self.client()  # 确保账号存在
         from db import get_connection
 
-        conn = get_connection()
+        conn = get_connection(self.db_settings)
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT password_hash FROM users WHERE username = %s", (TEST_USER,))

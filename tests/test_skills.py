@@ -6,6 +6,7 @@ key_map id=1（web）的解码结果 == 数据集作者写入的原始技能集�
 """
 
 import unittest
+from pathlib import Path
 
 from etl.skills import decode_skill_map, scan_tc_strings
 
@@ -29,22 +30,11 @@ class TestScanTcStrings(unittest.TestCase):
 
 
 class TestDecodeGoldSample(unittest.TestCase):
-    """金样例对照（需要 MySQL 中已有 key_map 暂存表，不可用时跳过）。"""
+    """金样例对照（原始 key_map id=1 的序列化字节已固化，不依赖数据库）。"""
 
     def test_gold(self):
-        try:
-            from db import get_connection
-            conn = get_connection()
-        except Exception as e:  # 数据库不可用时跳过而非失败
-            self.skipTest(f"数据库不可用：{e}")
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT key_words_map FROM key_map WHERE id = 1")
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        self.assertIsNotNone(row, "key_map 缺少 id=1 的样例")
-        skills = decode_skill_map(row[0])
+        fixture = Path(__file__).parent / "fixtures" / "skill_map.hex"
+        skills = decode_skill_map(bytes.fromhex(fixture.read_text(encoding="ascii")))
         self.assertEqual(set(skills), GOLD_SKILLS)
 
 

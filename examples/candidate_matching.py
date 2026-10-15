@@ -3,7 +3,8 @@
 import sys
 
 # 在 Windows 控制台下保证中文正常输出
-sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 CANDIDATES = [
     {"name": "张三", "years": 3, "skills": ["python", "django", "mysql"], "salary": 18000},

@@ -28,7 +28,7 @@ def bar(x_data, y_data, title, y_name="数量", rotate=0):
         .add_xaxis([str(v) for v in x_data])
         .add_yaxis(
             y_name,
-            [None if v is None else round(float(v), 1) for v in y_data],
+            [None if pd.isna(v) else round(float(v), 1) for v in y_data],
             label_opts=opts.LabelOpts(is_show=False),
         )
         .set_global_opts(
@@ -60,7 +60,9 @@ def salary_hist(values, step=2000, title="薪资分布（每 2000 元一档）")
     if not values:
         return None
     top = int(max(values))
-    bins = list(range(0, top + step, step))
+    # 左闭右开：最后一个边界必须严格大于最大值，含最大值为 0 的情况。
+    upper = (top // step + 1) * step
+    bins = list(range(0, upper + step, step))
     labels = [f"{bins[i] // 1000}k-{bins[i + 1] // 1000}k" for i in range(len(bins) - 1)]
     counts = pd.cut(pd.Series(values), bins=bins, right=False, labels=labels).value_counts(sort=False)
     return bar(labels, list(counts), title, y_name="职位数")

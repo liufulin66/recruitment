@@ -1,23 +1,19 @@
-"""账号模块用例：密码哈希、注册校验与凭据校验（需要数据库；不可用时跳过）。"""
+"""账号模块用例：密码哈希、注册校验与凭据校验（使用独立测试数据库）。"""
 
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
+from tests.support import MySQLTestCase
 
 
-class TestAuthModule(unittest.TestCase):
+class TestAuthModule(MySQLTestCase):
     @classmethod
     def setUpClass(cls):
-        try:
-            from db import get_connection
-
-            conn = get_connection()
-            conn.close()
-        except Exception as e:
-            raise unittest.SkipTest(f"数据库不可用：{e}")
+        super().setUpClass()
         import auth
-
         cls.auth = auth
-        auth.ensure_users_table()
 
     @staticmethod
     def _name():
@@ -72,6 +68,23 @@ class TestAuthModule(unittest.TestCase):
         finally:
             conn.close()
         self.assertNotIn(password, stored)
+
+    def test_concurrent_duplicate_registration_is_handled(self):
+        name = self._name()
+        barrier = Barrier(2)
+
+        def register():
+            with self.app.app_context():
+                barrier.wait(timeout=5)
+                try:
+                    self.auth.register(name, "abc12345")
+                    return "created"
+                except self.auth.AuthError as exc:
+                    return str(exc)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: register(), range(2)))
+        self.assertCountEqual(results, ["created", "用户名已被占用"])
 
 
 if __name__ == "__main__":

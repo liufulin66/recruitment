@@ -16,8 +16,8 @@
   </form>
   <p class="switch">
     已有账号？
-    {% if next_path %}<a href="{{ url_for('login', next=next_path) }}">去登录</a>
-    {% else %}<a href="{{ url_for('login') }}">去登录</a>{% endif %}
+    {% if next_path %}<a href="{{ url_for('auth.login', next=next_path) }}">去登录</a>
+    {% else %}<a href="{{ url_for('auth.login') }}">去登录</a>{% endif %}
   </p>
 </div>
 {% endblock %}

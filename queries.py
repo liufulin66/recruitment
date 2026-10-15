@@ -8,18 +8,14 @@
 """
 
 import json
-import warnings
 from pathlib import Path
 
 import pandas as pd
 
-from etl.cleaning import EDU_TIERS, EXP_TIERS
+from domain import EDU_TIERS, EXP_TIERS
 
-# pandas 对"非 SQLAlchemy 连接"会提示走了未官方测试的路径。
-# 本项目刻意选择 PyMySQL + 手写 SQL（见设计 D2），该提示已知且无害，静默之。
-warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy connectable")
-
-# 三维筛选：请求参数名 → jobs 表列名（同名）
+# 三维筛选：请求参数名 → jobs 表列名（同名）；第四维"期次"（snapshot）单独处理——
+# 它不是 jobs 的取值筛选，而是数据归属维度（label -> snapshot_id 需查 snapshots 表）
 FILTER_FIELDS = ("city", "edu", "exp")
 
 _STOPWORDS_FILE = Path(__file__).resolve().parent / "data" / "stopwords.txt"
@@ -46,33 +42,69 @@ def _sql_in(values) -> str:
 # ---------------- 筛选解析（5.1） ----------------
 
 def parse_filters(params) -> dict:
-    """从请求参数提取三维筛选；空串 / None 一律视为"不限"。"""
-    out = {}
+    """从请求参数提取四维筛选（期次 + 城市/学历/经验）；空串 / None 一律视为"不限"。
+
+    期次此处只提取 label；label -> snapshot_id 的解析见 resolve_snapshot（需查库）。
+    """
+    out = {"snapshot": (params.get("snapshot") or "").strip() or None}
     for field in FILTER_FIELDS:
         value = (params.get(field) or "").strip()
         out[field] = value or None
     return out
 
 
+def resolve_snapshot(conn, filters, snapshots=None) -> int | None:
+    """把期次 label 解析为 snapshot_id 并写入 filters（返回 id）。
+
+    未指定期次 -> 最新一期（snapshots.id 最大：登记序即时间序）；
+    未知 label 同样回退最新期（旧链接里的期次被移除后页面仍可用，
+    期次下拉会如实显示当前实际期次）。
+    """
+    label = (filters or {}).get("snapshot")
+    if snapshots is None:
+        snapshots = get_snapshots(conn)
+    current = next((s for s in snapshots if s["label"] == label), None)
+    if current is None and snapshots:
+        current = max(snapshots, key=lambda s: s["id"])
+    filters["snapshot_id"] = current["id"] if current else None
+    if label and current:
+        filters["snapshot"] = current["label"]
+    return filters["snapshot_id"]
+
+
+def get_snapshots(conn) -> list[dict]:
+    """全部快照（期次下拉选项与页脚元数据的数据源），按登记序返回。"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, label, source, period, note FROM snapshots ORDER BY id")
+        return [
+            {"id": i, "label": label, "source": source, "period": period, "note": note}
+            for i, label, source, period, note in cur.fetchall()
+        ]
+
+
 def _where(filters) -> tuple[str, list]:
-    """把筛选条件编译为 WHERE 子句与参数列表（多条件取交集）。"""
-    conds, params = [], []
+    """把筛选条件编译为 WHERE 子句与参数列表（多条件取交集）。
+
+    期次条件永远注入（规格：统计 MUST NOT 混合多个快照）——这是"永不混期"
+    的落点。filters 必须先经 resolve_snapshot 写入 snapshot_id；空库时
+    snapshot_id 为 None，条件不匹配任何行，页面自然呈现空态。
+    """
+    conds, params = ["snapshot_id = %s"], [filters["snapshot_id"]]
     for field in FILTER_FIELDS:
-        value = (filters or {}).get(field)
+        value = filters.get(field)
         if value:
             conds.append(f"{field} = %s")
             params.append(value)
-    where = ("WHERE " + " AND ".join(conds)) if conds else ""
-    return where, params
+    return "WHERE " + " AND ".join(conds), params
 
 
 # ---------------- 总览（5.2） ----------------
 
-def get_overview(conn, filters=None) -> dict:
+def get_overview(conn, filters) -> dict:
     """总览四项指标：职位总数 / 平均薪资 / 职位最多的城市 / 最高频技能。
 
-    注意：Top 技能取全量技能数据（技能表不含城市/经验/学历维度，
-    按规格"技能数据的来源与筛选边界"处理）。
+    注意：Top 技能取当前期次的全量技能数据（技能表不含城市/经验/学历维度，
+    按规格"技能数据的来源与筛选边界"处理）；无技能数据的期次该指标为空。
     """
     where, params = _where(filters)
     with conn.cursor() as cur:
@@ -87,7 +119,7 @@ def get_overview(conn, filters=None) -> dict:
         top_city = row[0] if row else None
 
         top_skill = None
-        skill_top = get_skill_top(conn, top_n=1)
+        skill_top = get_skill_top(conn, top_n=1, snapshot_id=filters["snapshot_id"])
         if skill_top:
             top_skill = skill_top[0]["skill"]
 
@@ -101,10 +133,11 @@ def get_overview(conn, filters=None) -> dict:
 
 # ---------------- 分组聚合与排行（5.3） ----------------
 
-def get_group_stats(conn, dimension, filters=None) -> pd.DataFrame:
+def get_group_stats(conn, dimension, filters, *, include_median=True) -> pd.DataFrame:
     """按 城市 / 学历 / 经验 分组：职位数量、平均薪资、薪资中位数。
 
-    返回 DataFrame，列：value, n, avg_salary, median_salary；
+    返回 DataFrame，列：value, n, avg_salary，默认包含 median_salary；
+    页面不需要中位数时传 include_median=False，由 SQL 聚合，避免拉取明细。
     排序规则（规格）：职位数降序，并列按名称字典序。
     职位数量计"全部行"，薪资统计只计 salary_avg 非空的行（缺失自动跳过）。
     """
@@ -112,7 +145,21 @@ def get_group_stats(conn, dimension, filters=None) -> pd.DataFrame:
         raise ValueError(f"不支持的维度：{dimension}（可用：{', '.join(FILTER_FIELDS)}）")
 
     where, params = _where(filters)
-    df = pd.read_sql(f"SELECT {dimension} AS dim, salary_avg FROM jobs {where}", conn, params=params)
+    if not include_median:
+        sql = (
+            f"SELECT {dimension} AS value, COUNT(*) AS n, AVG(salary_avg) AS avg_salary "
+            f"FROM jobs {where} GROUP BY {dimension} ORDER BY n DESC, value IS NULL ASC, value ASC"
+        )
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        out = pd.DataFrame(rows, columns=["value", "n", "avg_salary"])
+        out["avg_salary"] = pd.to_numeric(out["avg_salary"], errors="coerce")
+        return out
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {dimension} AS dim, salary_avg FROM jobs {where}", params)
+        df = pd.DataFrame(cur.fetchall(), columns=["dim", "salary_avg"])
+    df["salary_avg"] = pd.to_numeric(df["salary_avg"], errors="coerce")
 
     g = df.groupby("dim", dropna=False)
     out = pd.DataFrame(
@@ -127,7 +174,7 @@ def get_group_stats(conn, dimension, filters=None) -> pd.DataFrame:
     return out
 
 
-def get_top_cities(conn, top_n=10, filters=None) -> list[dict]:
+def get_top_cities(conn, top_n, filters) -> list[dict]:
     """城市排行（Top-N）：按职位数量降序，输出职位数与平均薪资。"""
     where, params = _where(filters)
     sql = (
@@ -144,14 +191,19 @@ def get_top_cities(conn, top_n=10, filters=None) -> list[dict]:
 
 # ---------------- 技能词频与共现（5.4 / 5.5） ----------------
 
-def get_skill_top(conn, top_n=15) -> list[dict]:
-    """技能词频 Top-N：英文大小写归并（LOWER）+ 停用词过滤。
+def get_skill_top(conn, top_n=15, snapshot_id=None) -> list[dict]:
+    """技能词频 Top-N：英文大小写归并（LOWER）+ 停用词过滤，按期次隔离。
 
     词频 = 出现的岗位数（同一岗位内重复出现只计一次）。
-    全量统计、不参与三维筛选（规格：技能数据的来源与筛选边界）。
+    不参与城市/经验/学历筛选（规格：技能数据的来源与筛选边界）；
+    source_map_id 仅在同一快照内唯一，跨期统计会把不同期的技能记到
+    同一岗位名下，因此必须带期次过滤。
     """
     words = tuple(sorted(STOPWORDS))
-    cond = f"WHERE LOWER(skill) NOT IN ({_sql_in(words)})" if words else ""
+    cond = (
+        f"WHERE snapshot_id = %s AND LOWER(skill) NOT IN ({_sql_in(words)})"
+        if words else "WHERE snapshot_id = %s"
+    )
     sql = f"""
         SELECT LOWER(skill) AS skill, COUNT(DISTINCT source_map_id) AS jobs
         FROM job_skills {cond}
@@ -160,7 +212,7 @@ def get_skill_top(conn, top_n=15) -> list[dict]:
         LIMIT %s
     """
     with conn.cursor() as cur:
-        cur.execute(sql, [*words, top_n])
+        cur.execute(sql, [snapshot_id, *words, top_n])
         return [{"skill": skill, "n": int(n)} for skill, n in cur.fetchall()]
 
 
@@ -178,13 +230,15 @@ def build_cooccurrence_matrix(pairs, skills) -> list[list[int]]:
     return matrix
 
 
-def get_skill_cooccurrence(conn, top_n=10) -> dict:
-    """Top-N 技能的共现矩阵：统计"同一岗位内"两两同时出现的次数。
+def get_skill_cooccurrence(conn, top_n=10, snapshot_id=None) -> dict:
+    """Top-N 技能的共现矩阵：统计"同一岗位内"两两同时出现的次数（按期次隔离）。
 
     返回 {"skills": [...], "matrix": [[...]]}；
     对角线补上各技能自身的岗位数，热力图观感更完整。
+    自连接必须两侧都限定同一 snapshot_id：join 键 source_map_id 只在
+    快照内唯一，不带期次的两期同名 id 会被当成同一岗位凑出假共现。
     """
-    top = get_skill_top(conn, top_n=top_n)
+    top = get_skill_top(conn, top_n=top_n, snapshot_id=snapshot_id)
     skills = [t["skill"] for t in top]
     if not skills:
         return {"skills": [], "matrix": []}
@@ -201,12 +255,14 @@ def get_skill_cooccurrence(conn, top_n=10) -> dict:
                COUNT(DISTINCT a.source_map_id) AS c
         FROM job_skills a
         JOIN job_skills b
-          ON a.source_map_id = b.source_map_id
+          ON a.snapshot_id = b.snapshot_id
+         AND a.source_map_id = b.source_map_id
          AND LOWER(a.skill) < LOWER(b.skill)
-        WHERE LOWER(a.skill) IN ({ph}) AND LOWER(b.skill) IN ({ph}) {stop_cond}
+        WHERE a.snapshot_id = %s
+          AND LOWER(a.skill) IN ({ph}) AND LOWER(b.skill) IN ({ph}) {stop_cond}
         GROUP BY s1, s2
     """
-    params = [*skills, *skills, *words, *words]
+    params = [snapshot_id, *skills, *skills, *words, *words]
     with conn.cursor() as cur:
         cur.execute(sql, params)
         pairs = cur.fetchall()
@@ -220,7 +276,7 @@ def get_skill_cooccurrence(conn, top_n=10) -> dict:
 
 # ---------------- 页面辅助（第 6 组） ----------------
 
-def get_salary_values(conn, filters=None) -> list[float]:
+def get_salary_values(conn, filters) -> list[float]:
     """筛选后全部记录的等效平均月薪（供直方图 / 箱线图；缺失薪资自动排除）。"""
     where, params = _where(filters)
     cond = (where + " AND") if where else "WHERE"
@@ -229,10 +285,17 @@ def get_salary_values(conn, filters=None) -> list[float]:
         return [float(row[0]) for row in cur.fetchall()]
 
 
-def get_filter_options(conn) -> dict:
-    """筛选控件选项：城市取库中全部取值（按名称排序）；学历 / 经验用固定档位。"""
+def get_filter_options(conn, snapshot_id) -> dict:
+    """筛选控件选项：城市取当前期次的全部取值（按名称排序）；学历 / 经验用固定档位。
+
+    城市清单按期次取（规格：筛选选项随期次变化）——两期覆盖的城市集合不同。
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL ORDER BY city")
+        cur.execute(
+            "SELECT DISTINCT city FROM jobs "
+            "WHERE snapshot_id = %s AND city IS NOT NULL ORDER BY city",
+            (snapshot_id,),
+        )
         cities = [row[0] for row in cur.fetchall()]
     return {"cities": cities, "edus": list(EDU_TIERS), "exps": list(EXP_TIERS)}
 
@@ -266,7 +329,7 @@ def aggregate_by_province(city_counts, mapping=None) -> dict:
     return out
 
 
-def get_province_totals(conn, filters=None) -> list[dict]:
+def get_province_totals(conn, filters) -> list[dict]:
     """省份维度职位数（城市数量汇总；供中国地图着色），按数量降序。"""
     city_rows = get_top_cities(conn, top_n=1000, filters=filters)
     totals = aggregate_by_province([(r["city"], r["n"]) for r in city_rows])

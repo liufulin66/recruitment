@@ -6,6 +6,8 @@
 
 import re
 
+from domain import EDU_TIERS, EXP_TIERS
+
 # ---------------- 薪资解析 ----------------
 
 # 单位换算：统一折算为"元"
@@ -91,7 +93,6 @@ def normalize_city(text):
 
 
 # 学历固定档位（顺序即层级，从高到低）
-EDU_TIERS = ("博士", "硕士", "本科", "大专", "高中及以下", "不限")
 
 
 def normalize_education(text):
@@ -115,7 +116,6 @@ def normalize_education(text):
 
 
 # 经验固定档位
-EXP_TIERS = ("应届生", "1年以内", "1-3年", "3-5年", "5-10年", "10年以上", "不限")
 _EXP_BANDS = ((1, 3, "1-3年"), (3, 5, "3-5年"), (5, 10, "5-10年"))
 
 
@@ -128,7 +128,8 @@ def normalize_experience(text):
     if not text:
         return None
     s = str(text).strip().removeprefix("经验")
-    if s.startswith("应届"):
+    if s.startswith("应届") or s.startswith("在校"):
+        # BOSS直聘写法「经验在校/应届」整体表示学生档，归入应届生
         return "应届生"
     if s.startswith("不限"):
         return "不限"

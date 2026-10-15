@@ -123,6 +123,11 @@ class TestNormalizeExperience(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.assertEqual(normalize_experience(raw), want)
 
+    def test_bosszp_student_band(self):
+        """BOSS直聘写法「经验在校/应届」整体表示学生档，归入应届生。"""
+        self.assertEqual(normalize_experience("经验在校/应届"), "应届生")
+        self.assertEqual(normalize_experience("在校/应届"), "应届生")
+
 
 if __name__ == "__main__":
     unittest.main()

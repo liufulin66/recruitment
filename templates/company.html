@@ -1,10 +1,7 @@
 {% extends "base.html" %}
+{% from "_charts.html" import render_charts %}
 {% block content %}
-{% for chart in charts %}
-<section class="chart-box">
-  {% if chart %}{{ chart | safe }}{% else %}<div class="empty">当前筛选条件下暂无数据</div>{% endif %}
-</section>
-{% endfor %}
+{{ render_charts(charts) }}
 <section class="chart-box"><div class="empty">公司规模：数据不包含该维度</div></section>
 <section class="chart-box"><div class="empty">行业：数据不包含该维度</div></section>
 {% endblock %}
